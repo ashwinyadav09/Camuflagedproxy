@@ -1,8 +1,12 @@
-import requests
+import aiohttp
+import asyncio
+import sqlite3
 from sid import *
 from database import *
+from qr import *
+import requests
 
-def mark_attendance(session_id: str, attendance_id: str, student_id: str):
+async def mark_attendance(session_id: str, attendance_id: str, student_id: str, session):
     url = "https://student.bennetterp.camu.in/api/Attendance/record-online-attendance"
     headers = {
         "Cookie": f"connect.sid={session_id}",
@@ -19,39 +23,45 @@ def mark_attendance(session_id: str, attendance_id: str, student_id: str):
         "offQrCdEnbld": True
     }
 
-    response = requests.post(url, headers=headers, json=payload)
     try:
-        response=response.json()  # Return the response as JSON
-        try:
-            if response["output"]["data"]!=None:
-                #print("Attendance Response:", response["output"]["data"]["code"])
-                if response["output"]["data"]["code"]=="ATTENDANCE_ALREADY_MARKED" or response["output"]["data"]["code"]=="SUCCESS":
-                    return True
-                else:
-                    return False
-            else:
-                #print("Failed to mark attendance.")
-                return False
-        except Exception as e:
-            print(e)
+        async with session.post(url, headers=headers, json=payload) as response:
+            response_data = await response.json()
+            
+            if response_data.get("output", {}).get("data") is not None:
+                code = response_data["output"]["data"].get("code", "")
+                return code in ["ATTENDANCE_ALREADY_MARKED", "SUCCESS"]
             return False
-    except ValueError:
-        print("Failed to parse response as JSON.")
+    except Exception as e:
+        print(f"Error marking attendance for {student_id}: {e}")
         return False
 
 
-import sqlite3
-from qr import *
-def start_mark(qr_id:str):
+async def process_student(em, attendance_id, session):
+    """ Fetch session ID & student ID, then mark attendance """
+    sid = get_sid(em, get_pass(em))
+    student_id = get_stu(em)
+    return await mark_attendance(sid, attendance_id, student_id, session)
+
+
+async def start_mark(qr_id: str):
     conn = sqlite3.connect('database.db')
-    c=conn.cursor()
+    c = conn.cursor()
     c.execute('SELECT email FROM users')
-    attendance_id=qr_id
-    ems=c.fetchall()
-    l=[]
-    for em in ems:
-        em=em[0]
-        sid = get_sid(em,get_pass(em))
-        student_id = get_stu(em)
-        l.append(mark_attendance(sid, attendance_id, student_id))
-    return l
+    emails = [em[0] for em in c.fetchall()]  # Extract emails as a list
+    conn.close()
+
+    attendance_id = qr_id
+    results = []
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [process_student(em, attendance_id, session) for em in emails]
+        results = await asyncio.gather(*tasks)  # Run all tasks in parallel
+
+    return results
+
+
+# # Run the asyncio event loop
+# if _name_ == "_main_":
+#     qr_code = "your_qr_code_here"  # Replace with actual QR ID
+#     results = asyncio.run(start_mark(qr_code))
+#     print(results)
