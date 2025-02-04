@@ -1,11 +1,8 @@
-import httpx
-import asyncio
-import sqlite3
-from qr import *
+import requests
 from sid import *
 from database import *
 
-async def mark_attendance(session_id: str, attendance_id: str, student_id: str):
+def mark_attendance(session_id: str, attendance_id: str, student_id: str):
     url = "https://student.bennetterp.camu.in/api/Attendance/record-online-attendance"
     headers = {
         "Cookie": f"connect.sid={session_id}",
@@ -21,32 +18,40 @@ async def mark_attendance(session_id: str, attendance_id: str, student_id: str):
         "StuID": student_id,
         "offQrCdEnbld": True
     }
-    
-    async with httpx.AsyncClient() as client:
+
+    response = requests.post(url, headers=headers, json=payload)
+    try:
+        response=response.json()  # Return the response as JSON
         try:
-            response = await client.post(url, headers=headers, json=payload)
-            response_json = response.json()
-            if response_json.get("output", {}).get("data") is not None:
-                code = response_json["output"]["data"].get("code", "")
-                return code in ["ATTENDANCE_ALREADY_MARKED", "SUCCESS"]
-            return False
+            if response["output"]["data"]!=None:
+                #print("Attendance Response:", response["output"]["data"]["code"])
+                if response["output"]["data"]["code"]=="ATTENDANCE_ALREADY_MARKED" or response["output"]["data"]["code"]=="SUCCESS":
+                    return True
+                else:
+                    return False
+            else:
+                #print("Failed to mark attendance.")
+                return False
         except Exception as e:
-            print(f"Error marking attendance: {e}")
+            print(e)
             return False
+    except ValueError:
+        print("Failed to parse response as JSON.")
+        return False
 
-async def process_attendance(email, attendance_id):
-    sid = get_sid(email, get_pass(email))
-    student_id = get_stu(email)
-    return await mark_attendance(sid, attendance_id, student_id)
 
-async def start_mark(qr_id: str):
+import sqlite3
+from qr import *
+def start_mark(qr_id:str):
     conn = sqlite3.connect('database.db')
-    c = conn.cursor()
+    c=conn.cursor()
     c.execute('SELECT email FROM users')
-    attendance_id = qr_id
-    ems = [em[0] for em in c.fetchall()]
-    conn.close()
-    
-    tasks = [process_attendance(email, attendance_id) for email in ems]
-    results = await asyncio.gather(*tasks)
-    return results
+    attendance_id=qr_id
+    ems=c.fetchall()
+    l=[]
+    for em in ems:
+        em=em[0]
+        sid = get_sid(em,get_pass(em))
+        student_id = get_stu(em)
+        l.append(mark_attendance(sid, attendance_id, student_id))
+    return l
