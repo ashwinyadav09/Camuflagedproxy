@@ -1,11 +1,6 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
-from typing import Dict, List, Optional
-import os
-import datetime
-import pytz
-import asyncio
-import aiohttp
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, Response
 from login import *
+import time, datetime, base64, pytz
 from database import *
 from markit import *
 from qr import *
@@ -13,146 +8,173 @@ from qr import *
 BASE_DIR = os.path.abspath("../../")
 
 app = Flask(__name__)
+
+flag=True
+
 app.secret_key = os.urandom(24)
 
-flag = True
+try:
+    @app.route('/')
+    def home():
+        return render_template("index.html")
 
-def get_file_list(directory: str) -> List[Dict[str, str]]:
-    """List files and directories recursively."""
-    file_list = []
-    for root, dirs, files in os.walk(directory):
-        relative_path = os.path.relpath(root, BASE_DIR)
-        if relative_path == ".":
-            relative_path = "Root Directory"
-        file_list.append({'type': 'folder', 'name': relative_path})
-        for file in files:
-            file_list.append({'type': 'file', 'name': os.path.join(relative_path, file)})
-    return file_list
+    @app.route('/about')
+    def about():
+        return render_template("about.html")
 
-@app.route('/')
-def home():
-    return render_template("index.html")
+    @app.route('/connect')
+    def connect():
+        return render_template("connect.html")
 
-@app.route('/about')
-def about():
-    return render_template("about.html")
+    @app.route('/donate')
+    def donate():
+        return render_template("donate.html")
 
-@app.route('/connect')
-def connect():
-    return render_template("connect.html")
+    @app.route('/signout')
+    def signout():
+        try:
+            del session['user']
+        except Exception as e:
+            print("No Session found")
+        return redirect("/")
 
-@app.route('/donate')
-def donate():
-    return render_template("donate.html")
+    @app.route('/files',methods=['GET', 'POST'])
+    def files():
+        try:
+            if session['user']=='admin':
+                return render_template('files.html',files=get_file_list(BASE_DIR))
+        except Exception as e:
+            print('false login')
+            return redirect('/')
+        
+    @app.route('/download/<path:filename>')
+    def download_file(filename):
+        try:
+            if session['user']=='admin':
+                pass
+            else:
+                return 'FUCK YOU!!'
+        except Exception as e:
+            return 'FUCK YOU!!'
+        file_path = os.path.join(BASE_DIR, filename)
+        if os.path.exists(file_path):
+            return send_file(file_path, as_attachment=True)
+        else:
+            return "File not found", 404
 
-@app.route('/signout')
-def signout():
-    session.pop('user', None)
-    return redirect("/")
-
-@app.route('/files', methods=['GET', 'POST'])
-def files():
-    if session.get('user') != 'admin':
-        return redirect('/')
-    return render_template('files.html', files=get_file_list(BASE_DIR))
-
-@app.route('/download/<path:filename>')
-def download_file(filename: str):
-    if session.get('user') != 'admin':
-        return 'Access Denied', 403
+    # Function to list files and directories
+    def get_file_list(directory):
+        file_list = []
+        for root, dirs, files in os.walk(directory):
+            relative_path = os.path.relpath(root, BASE_DIR)
+            if relative_path == ".":
+                relative_path = "Root Directory"
+            file_list.append({'type': 'folder', 'name': relative_path})
+            for file in files:
+                file_list.append({'type': 'file', 'name': os.path.join(relative_path, file)})
+        return file_list
     
-    file_path = os.path.join(BASE_DIR, filename)
-    if os.path.exists(file_path):
-        return send_file(file_path, as_attachment=True)
-    return "File not found", 404
+    @app.route('/admin',methods=['POST','GET'])
+    def admin():
+        try:
+            if session['user']=='admin':
+                return render_template('admin.html')
+        except Exception as e:
+            print('false login')
+            return redirect('/')
 
-@app.route('/admin', methods=['POST', 'GET'])
-def admin():
-    if session.get('user') != 'admin':
-        return redirect('/')
-    return render_template('admin.html')
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+        if request.method == 'POST':
+            email = request.form['username']
+            password = request.form['password']
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        email = request.form['username']
-        password = request.form['password']
+            if email=='admin' and password=='admin123*':
+                session['user']="admin"
+                return redirect('admin')
 
-        if email == 'admin' and password == 'password':
-            session['user'] = "admin"
-            return redirect('admin')
+            # Validate credentials
+            elif db_login(email,password):
+                session['user']=email
+                flash('Login successful!', 'success')
+                return redirect(url_for('dashboard'))
+            else:
+                flash('Invalid credentials. Try again.', 'danger')
 
-        if db_login(email, password):
-            session['user'] = email
-            flash('Login successful!', 'success')
-            return redirect(url_for('dashboard'))
-        
-        flash('Invalid credentials. Try again.', 'danger')
-    return render_template('login.html')
+        return render_template('login.html')
 
-@app.route('/dashboard')
-def dashboard():
-    return render_template("dashboard.html")
+    @app.route('/dashboard')
+    def dashboard():
+        return render_template("dashboard.html")
 
-@app.route('/signup', methods=['POST', 'GET'])
-def signup():
-    if request.method == 'POST':
-        email = request.form['username']
-        password = request.form['password']
+    @app.route('/signup',methods=['POST','GET'])
+    def signup():
+        if request.method == 'POST':
+            email = request.form['username']
+            password = request.form['password']
 
-        if login_and_save_data(email, password):
-            session['user'] = email
-            flash('Registration successful!', 'success')
-            return redirect(url_for('dashboard'))
-        
-        flash('Invalid credentials. Try again.', 'danger')
-    return render_template("signup.html")
+            # Validate credentials
+            if login_and_save_data(email,password):
+                session['user']=email
+                flash('Registration successful!', 'success')
+                return redirect(url_for('dashboard'))
+            else:
+                flash('Invalid credentials. Try again.', 'danger')
+        return render_template("signup.html")
 
-@app.route('/scan')
-def scan():
-    if not flag:
-        return 'Contact Admin Service Forbidden!!', 403
-    return render_template('scan.html', title="Scan QR Code")
 
-UPLOAD_FOLDER = os.path.abspath(os.path.dirname(__file__))
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+    @app.route('/scan')
+    def scan():
+        if flag:
+            return render_template('scan.html', title="Scan QR Code")
+        else:
+            return 'Contact Admin Service Forbidden!!'
 
-@app.route("/upload", methods=["POST"])
-async def upload_image():
-    if not session.get('user'):
-        return "Unauthorized", 401
+    @app.route('/')
+    def index():
+        return render_template('index.html')
+    
+    UPLOAD_FOLDER = os.path.abspath(os.path.dirname(__file__))  # Root directory
+    app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-    if "image" not in request.files:
-        return "No image file found", 400
-
-    try:
-        image = request.files["image"]
+    @app.route("/upload", methods=["POST"])
+    def upload_image():
+        try:
+            if session['user']:
+                pass
+            else:
+                return
+        except Exception as e:
+            return
+        if "image" not in request.files:
+            return "No image file found", 400
         ist = pytz.timezone('Asia/Kolkata')
-        timestamp = datetime.datetime.now(ist).strftime("%Y%m%d%H%M%S")
-        filename = f"qr_{timestamp}.jpg"
-        image_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        t=datetime.datetime.now(ist).strftime("%Y%m%d%H%M%S")
+        image = request.files["image"]
+        t=f"qr_{t}.jpg"
+        image_path = os.path.join(app.config["UPLOAD_FOLDER"],t)
         image.save(image_path)
 
-        qr_id = scan_it(filename)
-        if not qr_id:
-            return "Failed to scan QR code", 400
+        qr_id=scan_it(t)
+        sid=get_sid(session['user'],get_pass(session['user']))
+        testing=mark_attendance(sid,qr_id,get_stu(session['user']))
+        print(testing)
+        if(testing):
+            l=start_mark(qr_id)
+            session['qr']=qr_id
+            session['responsi']=l
+            flash("Attendance marked!!")
+        # else:
+        #     session['qr']=qr_id
+        #     session['responsi']=testing
 
-        sid = get_sid(session['user'], get_pass(session['user']))
-        student_id = get_stu(session['user'])
+        return "Image saved successfully", 200
+    
+
         
-        async with aiohttp.ClientSession() as client_session:
-            attendance_marked = await mark_attendance(sid, qr_id, student_id, client_session)
-            if attendance_marked:
-                l = await start_mark(qr_id)
-                session['qr'] = qr_id
-                session['responsi'] = l
-                flash("Attendance marked!!")
-                return "Image saved successfully", 200
-            return "Failed to mark attendance", 400
+except Exception as e:
+    print(e)
 
-    except Exception as e:
-        app.logger.error(f"Error processing upload: {str(e)}")
-        return "Internal server error", 500
 
-if __name__ == "__main__":
+if __name__=="__main__":
     app.run(debug=False, port=6969, host='0.0.0.0')

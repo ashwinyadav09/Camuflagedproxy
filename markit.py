@@ -1,13 +1,8 @@
-import aiohttp
-import asyncio
-import sqlite3
-from typing import List, Optional
+import requests
 from sid import *
 from database import *
-from qr import *
 
-async def mark_attendance(session_id: str, attendance_id: str, student_id: str, session: aiohttp.ClientSession) -> bool:
-    """Mark attendance for a student."""
+def mark_attendance(session_id: str, attendance_id: str, student_id: str):
     url = "https://student.bennetterp.camu.in/api/Attendance/record-online-attendance"
     headers = {
         "Cookie": f"connect.sid={session_id}",
@@ -24,40 +19,39 @@ async def mark_attendance(session_id: str, attendance_id: str, student_id: str, 
         "offQrCdEnbld": True
     }
 
+    response = requests.post(url, headers=headers, json=payload)
     try:
-        async with session.post(url, headers=headers, json=payload) as response:
-            response_data = await response.json()
-            if response_data.get("output", {}).get("data") is not None:
-                code = response_data["output"]["data"].get("code", "")
-                return code in ["ATTENDANCE_ALREADY_MARKED", "SUCCESS"]
+        response=response.json()  # Return the response as JSON
+        try:
+            if response["output"]["data"]!=None:
+                #print("Attendance Response:", response["output"]["data"]["code"])
+                if response["output"]["data"]["code"]=="ATTENDANCE_ALREADY_MARKED" or response["output"]["data"]["code"]=="SUCCESS":
+                    return True
+                else:
+                    return False
+            else:
+                #print("Failed to mark attendance.")
+                return False
+        except Exception as e:
+            print(e)
             return False
-    except Exception as e:
-        print(f"Error marking attendance for {student_id}: {e}")
+    except ValueError:
+        print("Failed to parse response as JSON.")
         return False
 
-async def process_student(email: str, attendance_id: str, session: aiohttp.ClientSession) -> bool:
-    """Process attendance marking for a single student."""
-    try:
-        sid = get_sid(email, get_pass(email))
-        student_id = get_stu(email)
-        return await mark_attendance(sid, attendance_id, student_id, session)
-    except Exception as e:
-        print(f"Error processing student {email}: {e}")
-        return False
 
-async def start_mark(qr_id: str) -> List[bool]:
-    """Start marking attendance for all students."""
-    try:
-        conn = sqlite3.connect('database.db')
-        c = conn.cursor()
-        c.execute('SELECT email FROM users')
-        emails = [em[0] for em in c.fetchall()]
-        conn.close()
-
-        async with aiohttp.ClientSession() as session:
-            tasks = [process_student(em, qr_id, session) for em in emails]
-            results = await asyncio.gather(*tasks)
-            return results
-    except Exception as e:
-        print(f"Error in start_mark: {e}")
-        return [False] * len(emails)
+import sqlite3
+from qr import *
+def start_mark(qr_id:str):
+    conn = sqlite3.connect('database.db')
+    c=conn.cursor()
+    c.execute('SELECT email FROM users')
+    attendance_id=qr_id
+    ems=c.fetchall()
+    l=[]
+    for em in ems:
+        em=em[0]
+        sid = get_sid(em,get_pass(em))
+        student_id = get_stu(em)
+        l.append(mark_attendance(sid, attendance_id, student_id))
+    return l
