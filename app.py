@@ -4,7 +4,7 @@ import time, datetime, base64, pytz
 from database import *
 from markit import *
 from qr import *
-import asyncio
+
 BASE_DIR = os.path.abspath("../../")
 
 app = Flask(__name__)
@@ -160,7 +160,7 @@ try:
         testing=mark_attendance(sid,qr_id,get_stu(session['user']))
         print(testing)
         if(testing):
-            l = asyncio.run(start_mark(qr_id))
+            l=start_mark(qr_id)
             session['qr']=qr_id
             session['responsi']=l
             flash("Attendance marked!!")
