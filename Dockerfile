@@ -18,12 +18,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . .
 
-# Expose the port the app runs on
-EXPOSE 6969
+# Expose the port (Railway assigns PORT env variable)
+EXPOSE ${PORT:-6969}
 
-# Set environment variables (optional, for production readiness)
+# Set environment variables
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
+ENV PORT=6969  
 
 # Set default command
 CMD ["python3", "app.py"]
