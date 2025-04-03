@@ -5,26 +5,34 @@ from login import *
 import pytz
 import datetime
 
-# Global variable for the database name
 db_name = "database.db"
 
-# Function to create the database and specified table
-# By default, creates 'users' table with two columns
 def create_db(table='users', db_name="database.db", **columns):
     if not columns:
-        columns = {"email": "TEXT UNIQUE NOT NULL", "password": "TEXT NOT NULL"}
+        columns = {
+            "email": "TEXT UNIQUE NOT NULL",
+            "password": "TEXT NOT NULL",
+            "name": "TEXT",
+            "reg_no": "TEXT",
+            "session_id": "TEXT",
+            "last_updated": "TEXT"
+        }
     columns_str = ", ".join([f"{col_name} {col_type}" for col_name, col_type in columns.items()])
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
+        # Create table if it doesn’t exist
         c.execute(f"CREATE TABLE IF NOT EXISTS {table} (id INTEGER PRIMARY KEY, {columns_str})")
-        print(f"Database and table '{table}' created successfully in '{db_name}'!")
-        # Add session_id and last_updated columns after table creation
-        try:
-            c.execute("ALTER TABLE users ADD COLUMN session_id TEXT")
-            c.execute("ALTER TABLE users ADD COLUMN last_updated TEXT")
-            print("Added session_id and last_updated columns to 'users' table.")
-        except sqlite3.OperationalError:
-            print("Columns 'session_id' or 'last_updated' already exist.")
+        print(f"Database and table '{table}' created or verified in '{db_name}'!")
+        # Check and add missing columns
+        existing_columns = {col[1] for col in c.execute(f"PRAGMA table_info({table})").fetchall()}
+        for col_name, col_type in columns.items():
+            if col_name not in existing_columns:
+                try:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+                    print(f"Added missing column '{col_name}' to '{table}'.")
+                except sqlite3.OperationalError as e:
+                    print(f"Error adding column '{col_name}': {e}")
+        conn.commit()
 
 def update_session_id(email, session_id):
     ist = pytz.timezone('Asia/Kolkata')
@@ -46,7 +54,6 @@ def get_session_id(email):
             return None
         return None
 
-# Insert a new user into the database, optionally storing a JSON file
 def new_user(db_name="database.db", table="users", **user_data):
     columns = ", ".join(user_data.keys())
     placeholders = ", ".join("?" for _ in user_data)
@@ -60,8 +67,8 @@ def new_user(db_name="database.db", table="users", **user_data):
             return True
     except sqlite3.IntegrityError:
         print("Error: Duplicate entry or constraint violation.")
+        return False
 
-# Clear all entries in a table
 def clear_db(table="users", db_name="database.db"):
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
@@ -69,7 +76,6 @@ def clear_db(table="users", db_name="database.db"):
         conn.commit()
         print(f"All entries in '{table}' table cleared.")
 
-# Delete the entire database file
 def del_db(db_name="database.db"):
     try:
         os.remove(db_name)
@@ -77,7 +83,6 @@ def del_db(db_name="database.db"):
     except FileNotFoundError:
         print("No database found to delete.")
 
-# Delete specific users by unique keys
 def del_user(table="users", db_name="database.db", **conditions):
     condition_str = " AND ".join([f"{col} = ?" for col in conditions])
     values = tuple(conditions.values())
@@ -87,7 +92,6 @@ def del_user(table="users", db_name="database.db", **conditions):
         conn.commit()
         print("User(s) deleted successfully.")
 
-# Read user details by conditions (supports multiple filters)
 def read_user(table="users", db_name="database.db", **conditions):
     condition_str = " AND ".join([f"{col} = ?" for col in conditions])
     values = tuple(conditions.values())
@@ -100,7 +104,6 @@ def read_user(table="users", db_name="database.db", **conditions):
             print(result)
         return results
 
-# Modify specific entries of a user
 def modify_user(table="users", db_name="database.db", conditions=None, **updates):
     if not conditions:
         print("No conditions provided for update.")
@@ -114,7 +117,6 @@ def modify_user(table="users", db_name="database.db", conditions=None, **updates
         conn.commit()
         print("User modified successfully.")
 
-# Read all entries in a table
 def read_all(table="users", db_name="database.db"):
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
@@ -124,7 +126,6 @@ def read_all(table="users", db_name="database.db"):
             print(row)
         return results
 
-# Read a specific table
 def read_table(table, db_name="database.db"):
     try:
         with sqlite3.connect(db_name) as conn:
@@ -135,7 +136,6 @@ def read_table(table, db_name="database.db"):
         print(f"Table '{table}' not found.")
         return None
 
-# Add a column to a specific table
 def add_column(table="users", db_name="database.db", **columns):
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
@@ -146,7 +146,6 @@ def add_column(table="users", db_name="database.db", **columns):
         except sqlite3.OperationalError as e:
             print(f"Error: {e}")
 
-# Delete a column from a specific table (SQLite 3.35+)
 def del_column(column, table="users", db_name="database.db"):
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
@@ -156,7 +155,6 @@ def del_column(column, table="users", db_name="database.db"):
         except sqlite3.OperationalError as e:
             print(f"Error: {e}")
 
-# Add a new table
 def add_table(table="users", db_name="database.db", **columns):
     columns_str = ", ".join([f"{col_name} {col_type}" for col_name, col_type in columns.items()])
     with sqlite3.connect(db_name) as conn:
@@ -164,7 +162,6 @@ def add_table(table="users", db_name="database.db", **columns):
         c.execute(f"CREATE TABLE IF NOT EXISTS {table} ({columns_str})")
         print(f"Table '{table}' created successfully.")
 
-# Delete a specific table
 def del_table(table="users", db_name="database.db"):
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
@@ -174,7 +171,6 @@ def del_table(table="users", db_name="database.db"):
         except sqlite3.OperationalError:
             print(f"Table '{table}' not found.")
 
-# Store a JSON file in the database linked to a specific email
 def store_js(file_data, email, column="bahikhata", table="users", db_name="database.db"):
     json_data = json.dumps(file_data)
     binary_data = json_data.encode('utf-8')
@@ -190,7 +186,6 @@ def store_js(file_data, email, column="bahikhata", table="users", db_name="datab
             print(f"File stored successfully as a new entry linked to email '{email}'.")
         conn.commit()
 
-# Retrieve a JSON file from the database linked to a specific email
 def retrieve_js(email, column="bahikhata", table="users", db_name="database.db"):
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
@@ -244,3 +239,6 @@ def db_login(email: str, password: str, table="users", db_name="database.db"):
                 return True
             return False
     return False
+
+# Ensure the database schema is initialized
+create_db()

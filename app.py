@@ -103,14 +103,22 @@ try:
     @app.route('/signup', methods=['POST', 'GET'])
     def signup():
         if request.method == 'POST':
-            email = request.form['username']
-            password = request.form['password']
-            if login_and_save_data(email, password):
-                session['user'] = email
-                flash('Registration successful!', 'success')
-                return redirect(url_for('dashboard'))
-            else:
-                flash('Invalid credentials. Try again.', 'danger')
+            email = request.form.get('username')
+            password = request.form.get('password')
+            if not email or not password:
+                flash('Email and password are required.', 'danger')
+                return render_template("signup.html")
+            try:
+                success = login_and_save_data(email, password)
+                if success:
+                    session['user'] = email
+                    flash('Registration successful!', 'success')
+                    return redirect(url_for('dashboard'))
+                else:
+                    flash('Registration failed. Check your credentials or try again later.', 'danger')
+            except Exception as e:
+                print(f"Signup error: {str(e)}")
+                flash(f'Registration failed: {str(e)}', 'danger')
         return render_template("signup.html")
 
     @app.route('/scan')
