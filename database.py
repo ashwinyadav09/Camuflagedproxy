@@ -20,10 +20,8 @@ def create_db(table='users', db_name="database.db", **columns):
     columns_str = ", ".join([f"{col_name} {col_type}" for col_name, col_type in columns.items()])
     with sqlite3.connect(db_name) as conn:
         c = conn.cursor()
-        # Create table if it doesn’t exist
         c.execute(f"CREATE TABLE IF NOT EXISTS {table} (id INTEGER PRIMARY KEY, {columns_str})")
         print(f"Database and table '{table}' created or verified in '{db_name}'!")
-        # Check and add missing columns
         existing_columns = {col[1] for col in c.execute(f"PRAGMA table_info({table})").fetchall()}
         for col_name, col_type in columns.items():
             if col_name not in existing_columns:
@@ -36,7 +34,7 @@ def create_db(table='users', db_name="database.db", **columns):
 
 def update_session_id(email, session_id):
     ist = pytz.timezone('Asia/Kolkata')
-    timestamp = datetime.datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S %Z")
     modify_user(table="users", conditions={"email": email}, session_id=session_id, last_updated=timestamp)
 
 def get_session_id(email):
@@ -47,7 +45,9 @@ def get_session_id(email):
         if result:
             session_id, last_updated = result
             ist = pytz.timezone('Asia/Kolkata')
-            last_time = datetime.datetime.strptime(last_updated, "%Y-%m-%d %H:%M:%S")
+            # Parse last_updated as offset-naive and make it offset-aware
+            last_time = datetime.datetime.strptime(last_updated.split()[0] + " " + last_updated.split()[1], "%Y-%m-%d %H:%M:%S")
+            last_time = ist.localize(last_time)  # Add timezone info
             now = datetime.datetime.now(ist)
             if (now - last_time).total_seconds() < 3600:  # Refresh if older than 1 hour
                 return session_id
@@ -240,5 +240,4 @@ def db_login(email: str, password: str, table="users", db_name="database.db"):
             return False
     return False
 
-# Ensure the database schema is initialized
 create_db()

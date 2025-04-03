@@ -23,23 +23,34 @@ async def mark_attendance_async(session, session_id: str, attendance_id: str, st
         async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as response:
             data = await response.json()
             if data["output"]["data"] and data["output"]["data"]["code"] in ["ATTENDANCE_ALREADY_MARKED", "SUCCESS"]:
+                print(f"Attendance marked for {student_id}")
                 return True
+            print(f"Failed to mark attendance for {student_id}: {data}")
             return False
     except Exception as e:
-        print(f"Error for {student_id}: {e}")
+        print(f"Error marking attendance for {student_id}: {e}")
         return False
 
 async def refresh_session_id(session, email, password):
     login_url = "https://student.bennetterp.camu.in/login/validate"
     payload = {"dtype": "M", "Email": email, "pwd": password}
-    async with session.post(login_url, json=payload) as response:
-        session_id = response.cookies.get("connect.sid").value if "connect.sid" in response.cookies else None
-        if session_id:
-            from database import update_session_id
-            update_session_id(email, session_id)
-        return session_id
+    try:
+        async with session.post(login_url, json=payload) as response:
+            session_id = response.cookies.get("connect.sid").value if "connect.sid" in response.cookies else None
+            if session_id:
+                from database import update_session_id
+                update_session_id(email, session_id)
+                print(f"Refreshed session ID for {email}")
+            return session_id
+    except Exception as e:
+        print(f"Error refreshing session ID for {email}: {e}")
+        return None
 
 async def start_mark(qr_id: str):
+    if not qr_id:
+        print("No valid QR ID provided")
+        return []
+    
     import sqlite3
     conn = sqlite3.connect('database.db')
     c = conn.cursor()
@@ -50,15 +61,28 @@ async def start_mark(qr_id: str):
     async with aiohttp.ClientSession() as session:
         tasks = []
         for email, password in users[:200]:  # Limit to 200 users
-            sid = get_session_id(email)
-            if not sid:
-                sid = await refresh_session_id(session, email, password)
-            student_id = get_stu(email)
-            if sid and student_id:
-                tasks.append(mark_attendance_async(session, sid, qr_id, student_id))
+            try:
+                sid = get_session_id(email)
+                if not sid:
+                    sid = await refresh_session_id(session, email, password)
+                student_id = get_stu(email)
+                if sid and student_id:
+                    tasks.append(mark_attendance_async(session, sid, qr_id, student_id))
+                else:
+                    print(f"Skipping {email}: No session ID or student ID")
+            except Exception as e:
+                print(f"Error preparing task for {email}: {e}")
+        
+        if not tasks:
+            print("No valid tasks to execute")
+            return []
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         return results
 
 def run_start_mark(qr_id: str):
-    return asyncio.run(start_mark(qr_id))
+    try:
+        return asyncio.run(start_mark(qr_id))
+    except Exception as e:
+        print(f"Error in run_start_mark: {e}")
+        return []

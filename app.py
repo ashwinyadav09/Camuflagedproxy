@@ -136,32 +136,40 @@ try:
 
     @app.route("/upload", methods=["POST"])
     async def upload_image():
-        try:
-            if 'user' not in session:
-                return "Unauthorized", 401
-        except Exception as e:
-            return "Unauthorized", 401
+        if 'user' not in session:
+            flash("Please log in first.", "danger")
+            return redirect(url_for('login'))
 
         if "image" not in request.files:
-            return "No image file found", 400
+            flash("No image file provided.", "danger")
+            return redirect(url_for('scan'))
 
         ist = pytz.timezone('Asia/Kolkata')
         t = datetime.datetime.now(ist).strftime("%Y%m%d%H%M%S")
         image = request.files["image"]
-        t = f"qr_{t}.jpg"
-        image_path = os.path.join(app.config["UPLOAD_FOLDER"], t)
-        image.save(image_path)
+        filename = f"qr_{t}.jpg"
+        image_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        try:
+            image.save(image_path)
+            qr_id = scan_it(image_path)
+            if not qr_id:
+                flash("Failed to decode QR code. Please try again with a clear image.", "danger")
+                return redirect(url_for('scan'))
 
-        qr_id = scan_it(t)
-        l = run_start_mark(qr_id)  # Marks all users concurrently
-        session['qr'] = qr_id
-        session['responsi'] = l
-        flash(f"Attendance marked for {sum(1 for r in l if r is True)} users!")
-        return "Image saved successfully", 200
+            l = run_start_mark(qr_id)
+            successful_marks = sum(1 for r in l if r is True)
+            session['qr'] = qr_id
+            session['responsi'] = l
+            flash(f"Attendance marked for {successful_marks} users!", "success")
+            return redirect(url_for('dashboard'))
+        except Exception as e:
+            print(f"Error in upload_image: {e}")
+            flash(f"Failed to process QR code: {str(e)}", "danger")
+            return redirect(url_for('scan'))
 
 except Exception as e:
     print(e)
 
 if __name__ == "__main__":
-    nest_asyncio.apply()  # Enable async in Flask
+    nest_asyncio.apply()
     app.run(debug=False, port=6969, host='0.0.0.0')
